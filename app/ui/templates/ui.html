@@ -1,0 +1,1485 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>{{ versions.app_name }} — Conversational Analytics UI</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script defer
+            src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+        <script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        brand: {
+          50:'#eef6ff',100:'#d9eaff',200:'#bcdaff',300:'#8ec0ff',400:'#589dff',500:'#3079ff',600:'#1e5bf5',700:'#1846e0',800:'#193bb5',900:'#1b398f'
+        }
+      }
+    }
+  }
+}
+</script>
+        <style>
+  [x-cloak] { display: none !important; }
+  .scroll-slim::-webkit-scrollbar { width:8px; height:8px; }
+  .scroll-slim::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:8px; }
+  pre.code { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; overflow:auto; font-size:12px; line-height:1.5; }
+  .pill { @apply inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-700 border border-slate-200; }
+</style>
+    </head>
+    <body class="bg-slate-50 text-slate-800 min-h-screen"
+        x-data="dbAgent()"
+        x-init="initFromStorage()">
+
+        <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+            <div
+                class="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center font-bold shadow-sm">DB</div>
+                    <div>
+                        <h1 class="text-lg font-semibold text-slate-900">{{
+                            versions.app_name }}</h1>
+                        <p class="text-xs text-slate-500">v{{
+                            versions.app_version }} · {{ versions.app_env }} ·
+                            LLM: {{ versions.llm_model }} · Embeddings: {{
+                            versions.embedding_model }}</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="pill"
+                        title="Schema retrieval top K">retrieval_top_k={{
+                        versions.schema_retrieval_top_k }}</span>
+                    <span class="pill" title="Max rows per query">max_rows={{
+                        versions.max_query_rows }}</span>
+                    <span class="pill" title="Query timeout seconds">timeout={{
+                        versions.query_timeout_seconds }}s</span>
+                    <span class="pill" title="SQL retries">retries={{
+                        versions.sql_retry_count }}</span>
+                    <span class="pill"
+                        :class="health.metadata_db==='connected'?'bg-emerald-50 text-emerald-700 border-emerald-200':'bg-amber-50 text-amber-700 border-amber-200'"
+                        x-text="'metadata_db: '+health.metadata_db">metadata_db</span>
+                    <span class="pill"
+                        :class="health.llm==='configured'?'bg-emerald-50 text-emerald-700 border-emerald-200':'bg-rose-50 text-rose-700 border-rose-200'"
+                        x-text="'llm: '+health.llm">llm</span>
+                    <button @click="refreshHealth()"
+                        class="ml-2 px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium">↻
+                        Health</button>
+                </div>
+            </div>
+            <nav
+                class="max-w-[1400px] mx-auto px-6 flex gap-1 text-sm border-t border-slate-100">
+                <button @click="activeTab='connection'"
+                    :class="activeTab==='connection'?'border-brand-600 text-brand-700 font-semibold':'border-transparent text-slate-500'"
+                    class="px-4 py-3 border-b-2">1 · Conexión &amp;
+                    Discovery</button>
+                <button @click="activeTab='context'"
+                    :class="activeTab==='context'?'border-brand-600 text-brand-700 font-semibold':'border-transparent text-slate-500'"
+                    class="px-4 py-3 border-b-2">2 · Contexto &amp; Knowledge
+                    Map</button>
+                <button @click="activeTab='query'"
+                    :class="activeTab==='query'?'border-brand-600 text-brand-700 font-semibold':'border-transparent text-slate-500'"
+                    class="px-4 py-3 border-b-2">3 · Chat &amp; Consultas
+                    NL</button>
+            </nav>
+        </header>
+
+        <main class="max-w-[1400px] mx-auto px-6 py-8 space-y-10">
+
+            <!-- ========================================================= -->
+            <!-- TAB 1: CONEXIÓN Y DISCOVERY                              -->
+            <!-- ========================================================= -->
+            <section x-show="activeTab==='connection'" x-cloak>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- FORMULARIO CONEXIÓN -->
+                    <div
+                        class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                        <h2
+                            class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                            <span
+                                class="w-7 h-7 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-bold">1</span>
+                            Conexión a la base de datos
+                        </h2>
+                        <p class="text-sm text-slate-500 mt-1 mb-5">Ingresá los
+                            datos. El password se envía cifrado al backend y
+                            nunca se loggea ni se envía al LLM.</p>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <label class="col-span-2">
+                                <span
+                                    class="text-xs font-medium text-slate-600">Tipo
+                                    de base</span>
+                                <select x-model="conn.database_type"
+                                    class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                                    <option
+                                        value="postgresql">PostgreSQL</option>
+                                    <option value="sqlserver" disabled>SQL
+                                        Server (próximamente)</option>
+                                    <option value="mysql" disabled>MySQL
+                                        (próximamente)</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span
+                                    class="text-xs font-medium text-slate-600">Host</span>
+                                <input type="text" x-model="conn.host"
+                                    placeholder="localhost"
+                                    class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                            </label>
+                            <label>
+                                <span
+                                    class="text-xs font-medium text-slate-600">Port</span>
+                                <input type="number" x-model.number="conn.port"
+                                    placeholder="5433"
+                                    class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                            </label>
+                            <label>
+                                <span
+                                    class="text-xs font-medium text-slate-600">Database
+                                    name</span>
+                                <input type="text" x-model="conn.database_name"
+                                    placeholder="lecatex"
+                                    class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                            </label>
+                            <label>
+                                <span
+                                    class="text-xs font-medium text-slate-600">Schema</span>
+                                <input type="text" x-model="conn.schema"
+                                    placeholder="public"
+                                    class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                            </label>
+                            <label>
+                                <span
+                                    class="text-xs font-medium text-slate-600">Username</span>
+                                <input type="text" x-model="conn.username"
+                                    placeholder="postgres"
+                                    class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                            </label>
+                            <label>
+                                <span
+                                    class="text-xs font-medium text-slate-600">Password</span>
+                                <input type="password" x-model="conn.password"
+                                    placeholder="••••••"
+                                    class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                            </label>
+                            <label class="col-span-2">
+                                <span
+                                    class="text-xs font-medium text-slate-600">SSL
+                                    mode (opcional)</span>
+                                <select x-model="conn.ssl_mode"
+                                    class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                                    <option :value="null">No SSL
+                                        (localhost)</option>
+                                    <option value="require">require</option>
+                                    <option value="verify-ca">verify-ca</option>
+                                    <option
+                                        value="verify-full">verify-full</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="mt-6 flex flex-wrap gap-2">
+                            <button @click="testConnection()"
+                                :disabled="busyConn"
+                                class="px-4 py-2 rounded-md bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-2">
+                                <span x-show="!busyConn">⚡ Probar
+                                    conexión</span>
+                                <span x-show="busyConn"
+                                    class="animate-pulse">Procesando…</span>
+                            </button>
+                            <button @click="connect()"
+                                :disabled="busyConn || !testResult.ok"
+                                class="px-4 py-2 rounded-md bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-2"
+                                :title="!testResult.ok?'Primero probá la conexión':''">
+                                🔐 Guardar &amp; Conectar
+                            </button>
+                            <button @click="runDiscovery()"
+                                :disabled="busyDiscovery || !connectionId"
+                                class="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-2"
+                                :title="!connectionId?'Conectá primero':''">
+                                🧠 Ejecutar Discovery (19 pasos)
+                            </button>
+                            <button @click="refreshConnections()"
+                                class="ml-auto px-3 py-2 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium">↻
+                                Actualizar conexiones</button>
+                        </div>
+                        <div class="mt-5 grid grid-cols-1 gap-3 text-sm"
+                            x-show="testResult.message || testResult.ok !== null"
+                            x-cloak>
+                            <div
+                                :class="testResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'"
+                                class="border rounded-lg px-4 py-3 flex items-start gap-3">
+                                <span
+                                    x-text="testResult.ok ? '✅' : '❌'">ok</span>
+                                <div class="flex-1">
+                                    <div class="font-medium"
+                                        x-text="testResult.ok ? 'Conexión exitosa' : 'Falló la conexión'">title</div>
+                                    <div class="text-xs opacity-80 mt-0.5"
+                                        x-text="testResult.message || testResult.masked_url || ''">detail</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL DERECHO: STATUS DISCOVERY + CONEXIONES EXISTENTES -->
+                    <div class="space-y-6">
+                        <!-- DISCOVERY STATUS -->
+                        <div
+                            class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                            <h2
+                                class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                                <span
+                                    class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm font-bold">2</span>
+                                Pipeline de Discovery
+                                <button @click="togglePolling()"
+                                    class="ml-auto text-xs px-2 py-1 rounded border border-slate-200 hover:bg-slate-50"
+                                    x-text="polling ? '⏸ Pausar polling' : '▶ Activar polling'">toggle
+                                    polling</button>
+                            </h2>
+                            <div class="mt-4 flex items-center gap-4 text-sm">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full"
+                                        :class="statusColor(discovery.status)"></span>
+                                    <span
+                                        class="font-medium uppercase text-xs tracking-wide text-slate-500"
+                                        x-text="discovery.status || 'IDLE'">IDLE</span>
+                                </div>
+                                <div class="text-slate-600"
+                                    x-show="connectionId">Connection: <span
+                                        class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded"
+                                        x-text="connectionId?.slice(0,13)+'…' || ''">uuid</span></div>
+                            </div>
+                            <div
+                                class="mt-3 h-3 w-full rounded-full bg-slate-100 overflow-hidden">
+                                <div
+                                    class="h-full bg-gradient-to-r from-brand-500 to-emerald-500 transition-all"
+                                    :style="progressStyle()"></div>
+                            </div>
+                            <div
+                                class="mt-2 text-xs text-slate-500 flex justify-between">
+                                <span
+                                    x-text="(discovery.current_step || 'Esperando inicio')">current
+                                    step</span>
+                                <span
+                                    x-text="`${discovery.completed_steps ?? 0} / ${discovery.total_steps ?? 19}`">0
+                                    / 19</span>
+                            </div>
+                            <div class="mt-4 text-sm">
+                                <div x-show="discovery.error_message"
+                                    class="border border-rose-200 bg-rose-50 text-rose-800 rounded-lg px-4 py-3 text-xs"
+                                    x-cloak>
+                                    <span class="font-semibold">Error:</span>
+                                    <span
+                                        x-text="discovery.error_message">err</span>
+                                </div>
+                                <div
+                                    x-show="discovery.status==='READY' && !discovery.error_message"
+                                    class="border border-emerald-200 bg-emerald-50 text-emerald-800 rounded-lg px-4 py-3 text-xs flex items-center gap-2"
+                                    x-cloak>
+                                    ✅ <span><b>Knowledge Map construido.</b>
+                                        context_version: <span
+                                            class="font-mono bg-white/60 px-1 rounded"
+                                            x-text="discovery.context_version || '—'"></span>
+                                        · Pasá al Tab 2 y Tab 3.</span>
+                                </div>
+                            </div>
+                            <ul
+                                class="mt-5 text-xs divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-auto scroll-slim"
+                                x-show="discoverySteps.length" x-cloak>
+                                <template x-for="(s,i) in discoverySteps"
+                                    :key="i">
+                                    <li
+                                        class="flex items-center gap-3 px-3 py-2"
+                                        :class="s.status==='done'?'bg-emerald-50/40':s.status==='running'?'bg-brand-50/40':s.status==='error'?'bg-rose-50/40':''">
+                                        <span
+                                            x-text="stepIcon(s.status)">◻</span>
+                                        <div class="flex-1 min-w-0">
+                                            <div
+                                                class="font-medium text-slate-800 truncate"
+                                                x-text="(i+1)+'. '+s.name">step</div>
+                                            <div
+                                                class="text-[10px] text-slate-500"
+                                                x-show="s.elapsed_ms!=null"
+                                                x-text="(s.elapsed_ms/1000).toFixed(2)+'s'">elapsed</div>
+                                        </div>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+
+                        <!-- CONEXIONES GUARDADAS -->
+                        <div
+                            class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                            <h2
+                                class="text-lg font-semibold text-slate-900 mb-4">Conexiones
+                                guardadas</h2>
+                            <div x-show="!connections.length"
+                                class="text-sm text-slate-500">Todavía no
+                                guardaste ninguna conexión.</div>
+                            <ul class="divide-y divide-slate-100 -mx-6 -my-1">
+                                <template x-for="c in connections" :key="c.id">
+                                    <li
+                                        class="px-6 py-3 hover:bg-slate-50 flex items-center gap-4 text-sm">
+                                        <div
+                                            class="w-9 h-9 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold uppercase"
+                                            x-text="c.database_type?.slice(0,3) || 'pg'">pg</div>
+                                        <div class="flex-1 min-w-0">
+                                            <div
+                                                class="font-medium text-slate-900 truncate"
+                                                x-text="c.connection_name || `${c.username}@${c.host}:${c.port}/${c.database_name}`">conn</div>
+                                            <div
+                                                class="text-xs text-slate-500 flex items-center gap-2">
+                                                <span
+                                                    class="w-2 h-2 rounded-full"
+                                                    :class="c.status==='READY'?'bg-emerald-500':c.status==='ERROR'?'bg-rose-500':'bg-amber-500'"></span>
+                                                <span
+                                                    x-text="(c.host||'')+':'+(c.port||'')+'/'+(c.database_name||'') + ' · schema=' + (c.schema||'public')">host</span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            @click="selectConnection(c.id, c.status==='READY')"
+                                            :class="connectionId===c.id?'ring-2 ring-brand-500':''"
+                                            class="px-3 py-1.5 text-xs rounded-md bg-brand-50 hover:bg-brand-100 text-brand-700 font-medium">Usar
+                                            esta</button>
+                                        <button @click="deleteConnection(c.id)"
+                                            class="text-slate-400 hover:text-rose-600"
+                                            title="Eliminar">🗑</button>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TOAST -->
+                <div x-show="toast.show" x-transition x-cloak
+                    class="fixed bottom-6 right-6 z-50">
+                    <div
+                        class="rounded-xl shadow-lg border border-slate-200 bg-white px-5 py-4 min-w-[280px] max-w-sm"
+                        :class="toast.variant==='error'?'border-rose-200':toast.variant==='success'?'border-emerald-200':''">
+                        <div class="flex items-start gap-3">
+                            <span class="text-xl"
+                                x-text="toast.variant==='error'?'❌':toast.variant==='success'?'✅':'ℹ️'">icon</span>
+                            <div class="flex-1">
+                                <div class="font-medium text-sm"
+                                    x-text="toast.title">title</div>
+                                <div
+                                    class="text-xs text-slate-600 mt-0.5 whitespace-pre-line"
+                                    x-text="toast.detail">detail</div>
+                            </div>
+                            <button @click="toast.show=false"
+                                class="text-slate-400 hover:text-slate-700 text-xs">✕</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- TAB 2: CONTEXTO / KNOWLEDGE MAP                           -->
+            <!-- ========================================================= -->
+            <section x-show="activeTab==='context'" x-cloak>
+                <div
+                    class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <div
+                        class="flex items-start justify-between gap-6 flex-wrap">
+                        <div>
+                            <h2
+                                class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                                <span
+                                    class="w-7 h-7 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-bold">2</span>
+                                Knowledge Map — Capa semántica construida
+                            </h2>
+                            <p class="text-sm text-slate-500 mt-1">Esto es lo
+                                que el sistema "entiende" de tu base: dominios,
+                                entidades, conceptos de negocio, métricas y
+                                dimensiones.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button @click="loadContext()"
+                                :disabled="!connectionId"
+                                class="px-4 py-2 rounded-md bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium">↻
+                                Cargar contexto</button>
+                        </div>
+                    </div>
+                    <div
+                        class="mt-6 grid grid-cols-2 md:grid-cols-6 gap-3 text-sm"
+                        x-show="contextSummary" x-cloak>
+                        <div
+                            class="rounded-xl bg-brand-50 border border-brand-100 px-4 py-3">
+                            <div
+                                class="text-xs text-brand-700/80">Dominios</div>
+                            <div class="text-2xl font-bold text-brand-800"
+                                x-text="contextSummary.domains">0</div>
+                        </div>
+                        <div
+                            class="rounded-xl bg-sky-50 border border-sky-100 px-4 py-3">
+                            <div class="text-xs text-sky-700/80">Entidades</div>
+                            <div class="text-2xl font-bold text-sky-800"
+                                x-text="contextSummary.entities">0</div>
+                        </div>
+                        <div
+                            class="rounded-xl bg-violet-50 border border-violet-100 px-4 py-3">
+                            <div class="text-xs text-violet-700/80">Conceptos de
+                                negocio</div>
+                            <div class="text-2xl font-bold text-violet-800"
+                                x-text="contextSummary.concepts">0</div>
+                        </div>
+                        <div
+                            class="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3">
+                            <div
+                                class="text-xs text-emerald-700/80">Métricas</div>
+                            <div class="text-2xl font-bold text-emerald-800"
+                                x-text="contextSummary.metrics">0</div>
+                        </div>
+                        <div
+                            class="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3">
+                            <div
+                                class="text-xs text-amber-700/80">Dimensiones</div>
+                            <div class="text-2xl font-bold text-amber-800"
+                                x-text="contextSummary.dimensions">0</div>
+                        </div>
+                        <div
+                            class="rounded-xl bg-slate-100 border border-slate-200 px-4 py-3">
+                            <div class="text-xs text-slate-600">Tablas</div>
+                            <div class="text-2xl font-bold text-slate-800"
+                                x-text="contextSummary.tables">0</div>
+                        </div>
+                    </div>
+
+                    <div x-show="!connectionId"
+                        class="mt-8 text-center text-sm text-slate-500 border border-dashed border-slate-300 rounded-xl py-12"
+                        x-cloak>
+                        🔌 Primero seleccioná o creá una conexión y ejecutá el
+                        Discovery desde el Tab 1.
+                    </div>
+
+                    <div class="mt-8" x-show="connectionId" x-cloak>
+                        <div
+                            class="flex flex-wrap gap-1 border-b border-slate-200">
+                            <template x-for="t in contextTabs" :key="t.key">
+                                <button @click="activeContextTab=t.key"
+                                    :class="activeContextTab===t.key?'border-brand-600 text-brand-700 font-semibold':'border-transparent text-slate-500 hover:text-slate-800'"
+                                    class="px-4 py-2 text-sm border-b-2"
+                                    x-text="t.label+' ('+(contextSummary?.[t.key] ?? 0)+')'">tab</button>
+                            </template>
+                        </div>
+
+                        <!-- DOMAINS -->
+                        <div
+                            class="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                            x-show="activeContextTab==='domains'" x-cloak>
+                            <template x-for="d in knowledgeMap.domains"
+                                :key="d.code">
+                                <div
+                                    class="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-lg">🏢</span>
+                                        <h3 class="font-semibold text-slate-900"
+                                            x-text="d.name"></h3>
+                                        <span
+                                            class="ml-auto font-mono text-[10px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full"
+                                            x-text="d.code"></span>
+                                    </div>
+                                    <p class="text-sm text-slate-600 mt-2"
+                                        x-text="d.description"></p>
+                                    <div class="mt-3 flex flex-wrap gap-1">
+                                        <template x-for="a in d.aliases||[]"
+                                            :key="a"><span class="pill"
+                                                x-text="a"></span></template>
+                                    </div>
+                                    <div
+                                        class="mt-3 text-[11px] text-slate-500">Tablas:
+                                        <span
+                                            x-text="(d.tables||[]).join(', ') || '—'"></span>
+                                        · conf <span
+                                            x-text="((d.confidence||0)*100).toFixed(0)+'%'"></span></div>
+                                </div>
+                            </template>
+                            <div x-show="!knowledgeMap.domains?.length"
+                                class="col-span-full text-sm text-slate-500 italic">No
+                                hay dominios detectados aún.</div>
+                        </div>
+
+                        <!-- ENTITIES -->
+                        <div class="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4"
+                            x-show="activeContextTab==='entities'" x-cloak>
+                            <template x-for="e in knowledgeMap.entities"
+                                :key="e.code">
+                                <div
+                                    class="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-lg">👥</span>
+                                        <h3 class="font-semibold text-slate-900"
+                                            x-text="e.name"></h3>
+                                        <span
+                                            class="ml-auto font-mono text-[10px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full"
+                                            x-text="e.code"></span>
+                                    </div>
+                                    <p class="text-sm text-slate-600 mt-2"
+                                        x-text="e.description"></p>
+                                    <div
+                                        class="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-600">
+                                        <div><span
+                                                class="font-medium">Dominio:</span>
+                                            <span class="text-slate-800"
+                                                x-text="e.domain_code||'—'"></span></div>
+                                        <div><span class="font-medium">Tabla
+                                                primaria:</span> <span
+                                                class="text-slate-800"
+                                                x-text="e.primary_table||'—'"></span></div>
+                                        <div><span class="font-medium">Key
+                                                cols:</span> <span
+                                                class="text-slate-800"
+                                                x-text="(e.key_columns||[]).join(', ') || '—'"></span></div>
+                                        <div><span class="font-medium">Status
+                                                col:</span> <span
+                                                class="text-slate-800"
+                                                x-text="e.status_column||'—'"></span></div>
+                                    </div>
+                                    <div
+                                        class="mt-3 flex flex-wrap gap-1"><template
+                                            x-for="a in e.aliases||[]"
+                                            :key="a"><span class="pill"
+                                                x-text="a"></span></template></div>
+                                    <div
+                                        class="mt-2 text-[11px] text-slate-500">Tablas
+                                        involucradas: <span
+                                            x-text="(e.tables||[]).join(', ')"></span>
+                                        · conf <span
+                                            x-text="((e.confidence||0)*100).toFixed(0)+'%'"></span></div>
+                                </div>
+                            </template>
+                            <div x-show="!knowledgeMap.entities?.length"
+                                class="col-span-full text-sm text-slate-500 italic">No
+                                hay entidades detectadas aún.</div>
+                        </div>
+
+                        <!-- CONCEPTS -->
+                        <div class="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4"
+                            x-show="activeContextTab==='concepts'" x-cloak>
+                            <template x-for="c in knowledgeMap.concepts"
+                                :key="c.code">
+                                <div
+                                    class="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-lg">💡</span>
+                                        <h3 class="font-semibold text-slate-900"
+                                            x-text="c.name"></h3>
+                                        <span
+                                            class="ml-auto font-mono text-[10px] bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full"
+                                            x-text="c.code"></span>
+                                    </div>
+                                    <p class="text-sm text-slate-600 mt-2"
+                                        x-text="c.description"></p>
+                                    <div
+                                        class="mt-3 flex flex-wrap gap-1"><template
+                                            x-for="a in c.aliases||[]"
+                                            :key="a"><span class="pill"
+                                                x-text="a"></span></template></div>
+                                    <div
+                                        class="mt-4 grid grid-cols-1 gap-2 text-xs">
+                                        <div x-show="c.condition_semantic"
+                                            class="bg-slate-50 rounded px-3 py-2"><span
+                                                class="font-medium text-slate-600">Semántica:</span>
+                                            <span class="text-slate-800"
+                                                x-text="c.condition_semantic"></span></div>
+                                        <div x-show="c.condition_sql"
+                                            class="bg-slate-900 text-slate-100 rounded px-3 py-2 font-mono"><span
+                                                class="text-slate-400">SQL:</span>
+                                            <span
+                                                x-text="c.condition_sql"></span></div>
+                                        <div class="text-slate-500">Tablas:
+                                            <span class="text-slate-800"
+                                                x-text="(c.tables||[]).join(', ') || '—'"></span>
+                                            · Columnas fuente: <span
+                                                class="text-slate-800"
+                                                x-text="(c.source_columns||[]).join(', ') || '—'"></span>
+                                            · conf <span
+                                                x-text="((c.confidence||0)*100).toFixed(0)+'%'"></span></div>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="!knowledgeMap.concepts?.length"
+                                class="col-span-full text-sm text-slate-500 italic">No
+                                hay conceptos detectados aún.</div>
+                        </div>
+
+                        <!-- METRICS -->
+                        <div
+                            class="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                            x-show="activeContextTab==='metrics'" x-cloak>
+                            <template x-for="m in knowledgeMap.metrics"
+                                :key="m.code">
+                                <div
+                                    class="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-lg">📊</span>
+                                        <h3 class="font-semibold text-slate-900"
+                                            x-text="m.name"></h3>
+                                        <span
+                                            class="ml-auto font-mono text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full"
+                                            x-text="m.code"></span>
+                                    </div>
+                                    <p class="text-sm text-slate-600 mt-2"
+                                        x-text="m.description"></p>
+                                    <div
+                                        class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                                        <div><span
+                                                class="font-medium">Agg:</span>
+                                            <span
+                                                class="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-800"
+                                                x-text="m.aggregation||'—'"></span></div>
+                                        <div><span
+                                                class="font-medium">Columna:</span>
+                                            <span class="text-slate-800"
+                                                x-text="m.source_column||'COUNT(*)'"></span></div>
+                                        <div class="col-span-2"><span
+                                                class="font-medium">Fecha:</span>
+                                            <span class="text-slate-800"
+                                                x-text="m.date_column||'—'"></span></div>
+                                        <div class="col-span-2"
+                                            x-show="m.filter_condition"><span
+                                                class="font-medium">Filtro:</span>
+                                            <span
+                                                class="font-mono text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded text-[11px]"
+                                                x-text="m.filter_condition"></span></div>
+                                    </div>
+                                    <div
+                                        class="mt-3 flex flex-wrap gap-1"><template
+                                            x-for="a in m.aliases||[]"
+                                            :key="a"><span class="pill"
+                                                x-text="a"></span></template></div>
+                                    <div
+                                        class="mt-2 text-[11px] text-slate-500">Tablas:
+                                        <span
+                                            x-text="(m.source_tables||[]).join(', ') || '—'"></span>
+                                        · conf <span
+                                            x-text="((m.confidence||0)*100).toFixed(0)+'%'"></span></div>
+                                </div>
+                            </template>
+                            <div x-show="!knowledgeMap.metrics?.length"
+                                class="col-span-full text-sm text-slate-500 italic">No
+                                hay métricas detectadas aún.</div>
+                        </div>
+
+                        <!-- DIMENSIONS -->
+                        <div
+                            class="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                            x-show="activeContextTab==='dimensions'" x-cloak>
+                            <template x-for="d in knowledgeMap.dimensions"
+                                :key="d.code">
+                                <div
+                                    class="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md">
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            x-text="d.dimension_type==='TEMPORAL'?'📅':d.dimension_type==='GEOGRAPHICAL'?'🌎':d.dimension_type==='ORGANIZATIONAL'?'🏛️':'🏷️'"
+                                            class="text-lg"></span>
+                                        <h3 class="font-semibold text-slate-900"
+                                            x-text="d.name"></h3>
+                                        <span
+                                            class="ml-auto font-mono text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full"
+                                            x-text="d.dimension_type"></span>
+                                    </div>
+                                    <p class="text-sm text-slate-600 mt-2"
+                                        x-text="d.description"></p>
+                                    <div
+                                        class="mt-3 text-xs text-slate-600 grid grid-cols-1 gap-1">
+                                        <div><span
+                                                class="font-medium">Tabla:</span>
+                                            <span class="text-slate-800"
+                                                x-text="d.source_table||'—'"></span></div>
+                                        <div><span
+                                                class="font-medium">Columna:</span>
+                                            <span class="text-slate-800"
+                                                x-text="d.source_column||'—'"></span></div>
+                                        <div
+                                            x-show="(d.requires_joins||[]).length"><span
+                                                class="font-medium">Joins:</span>
+                                            <span
+                                                class="text-slate-800 font-mono text-[11px]"
+                                                x-text="JSON.stringify(d.requires_joins)"></span></div>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="!knowledgeMap.dimensions?.length"
+                                class="col-span-full text-sm text-slate-500 italic">No
+                                hay dimensiones detectadas aún.</div>
+                        </div>
+
+                        <!-- TERMINOLOGY -->
+                        <div class="mt-5"
+                            x-show="activeContextTab==='terminology'" x-cloak>
+                            <div
+                                class="rounded-xl border border-slate-200 overflow-hidden">
+                                <table class="w-full text-sm">
+                                    <thead
+                                        class="bg-slate-50 border-b border-slate-200 text-slate-600">
+                                        <tr>
+                                            <th
+                                                class="text-left px-4 py-2 font-medium">Término</th>
+                                            <th
+                                                class="text-left px-4 py-2 font-medium">Forma
+                                                canónica</th>
+                                            <th
+                                                class="text-left px-4 py-2 font-medium">Aliases
+                                                / sinónimos</th>
+                                            <th
+                                                class="text-left px-4 py-2 font-medium">Tipo</th>
+                                            <th
+                                                class="text-left px-4 py-2 font-medium">Target</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        <template
+                                            x-for="t in knowledgeMap.terminology"
+                                            :key="t.term+t.canonical_form">
+                                            <tr>
+                                                <td
+                                                    class="px-4 py-2 font-medium text-slate-800"
+                                                    x-text="t.term"></td>
+                                                <td
+                                                    class="px-4 py-2 text-slate-700 font-mono text-xs"
+                                                    x-text="t.canonical_form"></td>
+                                                <td
+                                                    class="px-4 py-2 text-slate-600"><div
+                                                        class="flex flex-wrap gap-1"><template
+                                                            x-for="a in t.aliases||[]"
+                                                            :key="a"><span
+                                                                class="pill"
+                                                                x-text="a"></span></template></div></td>
+                                                <td class="px-4 py-2"><span
+                                                        class="pill"
+                                                        x-text="t.type"></span></td>
+                                                <td
+                                                    class="px-4 py-2 text-slate-600 font-mono text-xs"
+                                                    x-text="t.target_code||'—'"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                                <div x-show="!knowledgeMap.terminology?.length"
+                                    class="text-sm text-slate-500 italic py-8 text-center">Sin
+                                    glosario aún.</div>
+                            </div>
+                        </div>
+
+                        <!-- SCHEMA (SIMPLE) -->
+                        <div class="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4"
+                            x-show="activeContextTab==='tables'" x-cloak>
+                            <template x-for="t in knowledgeMap.tables"
+                                :key="(t.schema_name||'public')+'.'+t.table_name">
+                                <div
+                                    class="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md">
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            x-text="t.table_type==='VIEW'?'👁️':'🗂️'"
+                                            class="text-lg"></span>
+                                        <h3 class="font-semibold text-slate-900"
+                                            x-text="(t.schema_name||'public')+'.'+t.table_name"></h3>
+                                        <span
+                                            class="ml-auto text-xs text-slate-500"
+                                            x-text="`~${t.row_count_estimate||0} filas`"></span>
+                                    </div>
+                                    <p class="text-sm text-slate-500 mt-1"
+                                        x-show="t.comment"
+                                        x-text="t.comment"></p>
+                                    <div
+                                        class="mt-3 space-y-1 text-xs max-h-52 overflow-auto scroll-slim">
+                                        <template x-for="c in t.columns"
+                                            :key="c.name">
+                                            <div
+                                                class="flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-50">
+                                                <span class="w-5 text-center"
+                                                    x-show="c.is_pk">🔑</span>
+                                                <span class="w-5 text-center"
+                                                    x-show="!c.is_pk && c.is_fk">🔗</span>
+                                                <span class="w-5 text-center"
+                                                    x-show="!c.is_pk && !c.is_fk">&nbsp;</span>
+                                                <div
+                                                    class="font-mono text-slate-800"
+                                                    x-text="c.name"></div>
+                                                <div
+                                                    class="pill !py-0 !px-1.5 !text-[10px]"
+                                                    x-text="c.type"></div>
+                                                <span
+                                                    class="pill !py-0 !px-1.5 !text-[10px] !bg-rose-50 !text-rose-700 !border-rose-200"
+                                                    x-show="!c.nullable">NOT
+                                                    NULL</span>
+                                                <span x-show="c.comment"
+                                                    class="ml-auto text-[10px] text-slate-500 max-w-[200px] truncate"
+                                                    x-text="c.comment"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="!knowledgeMap.tables?.length"
+                                class="col-span-full text-sm text-slate-500 italic">Schema
+                                no cargado aún.</div>
+                        </div>
+
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- TAB 3: CHAT / CONSULTAS EN LENGUAJE NATURAL               -->
+            <!-- ========================================================= -->
+            <section x-show="activeTab==='query'" x-cloak>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- COLUMNA PRINCIPAL: CHAT -->
+                    <div class="lg:col-span-2 space-y-4">
+                        <div
+                            class="bg-white border border-slate-200 rounded-2xl shadow-sm">
+                            <div
+                                class="p-5 border-b border-slate-200 flex items-start justify-between gap-4 flex-wrap">
+                                <div>
+                                    <h2
+                                        class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                                        <span
+                                            class="w-7 h-7 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-bold">3</span>
+                                        Consultá tu base en lenguaje natural
+                                    </h2>
+                                    <p
+                                        class="text-sm text-slate-500 mt-1">Escribí
+                                        la pregunta. El sistema: detecta la
+                                        intención → recupera contexto semántico
+                                        → genera SemanticQueryPlan → genera SQL
+                                        → valida AST → ejecuta READ ONLY →
+                                        contesta.</p>
+                                </div>
+                                <div class="flex items-center gap-3 text-xs">
+                                    <label
+                                        class="flex items-center gap-1.5 text-slate-600"><input
+                                            type="checkbox"
+                                            x-model="chatOpts.explain"><span>Explicar
+                                            el plan (Explain)</span></label>
+                                    <label
+                                        class="flex items-center gap-1.5 text-slate-600"><input
+                                            type="checkbox"
+                                            x-model="chatOpts.includeData"><span>Mostrar
+                                            tabla de datos</span></label>
+                                </div>
+                            </div>
+                            <div class="px-5 pt-5">
+                                <label
+                                    class="text-xs font-medium text-slate-600">Pregunta</label>
+                                <div class="mt-2 relative">
+                                    <textarea x-model="chatQuestion" rows="3"
+                                        id="chat-input"
+                                        @keydown.enter.exact.prevent="sendQuestion()"
+                                        placeholder="Ej: ¿Cuántos empleados activos ingresaron durante los últimos 30 días?"
+                                        class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 leading-relaxed"></textarea>
+                                    <div
+                                        class="absolute right-3 bottom-3 flex items-center gap-2">
+                                        <span class="text-[11px] text-slate-400"
+                                            x-show="!connectionId">⚠️ Sin
+                                            conexión seleccionada</span>
+                                        <button @click="sendQuestion()"
+                                            :disabled="!chatQuestion.trim() || busyQuestion || !connectionId"
+                                            class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-2">
+                                            <span
+                                                x-show="!busyQuestion">Enviar</span>
+                                            <span x-show="busyQuestion"
+                                                class="animate-pulse">Generando…</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div
+                                    class="mt-3 flex flex-wrap gap-1.5 text-xs">
+                                    <button
+                                        @click="useExample('¿5 productos más vendidos por cantidad?')"
+                                        class="px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200">Ej
+                                        1 · Top 5 productos más
+                                        vendidos</button>
+                                    <button
+                                        @click="useExample('¿Cuál es el valor total facturado por mes?')"
+                                        class="px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200">Ej
+                                        2 · Facturación mensual</button>
+                                    <button
+                                        @click="useExample('¿Qué clientes tienen más órdenes, top 3?')"
+                                        class="px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200">Ej
+                                        3 · Clientes top 3</button>
+                                    <button
+                                        @click="useExample('Resumen del esquema: lista todas las tablas y cuántas columnas tiene cada una')"
+                                        class="px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200">Ej
+                                        4 · Resumen de la base</button>
+                                    <button
+                                        @click="useExample('¿Qué órdenes están pendientes por cliente?')"
+                                        class="px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200">Ej
+                                        5 · Órdenes pendientes</button>
+                                </div>
+                            </div>
+
+                            <!-- HISTORY / LATEST RESULT -->
+                            <div
+                                class="p-5 space-y-6 max-h-[720px] overflow-auto scroll-slim"
+                                id="chat-history">
+                                <template x-for="(msg,i) in messages" :key="i">
+                                    <div class="space-y-3">
+                                        <div class="flex gap-3">
+                                            <div
+                                                class="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold shrink-0">🙂</div>
+                                            <div
+                                                class="flex-1 bg-sky-50 border border-sky-100 rounded-2xl rounded-tl-none px-4 py-3">
+                                                <div
+                                                    class="text-sm text-slate-800"
+                                                    x-text="msg.question"></div>
+                                            </div>
+                                        </div>
+                                        <div class="flex gap-3">
+                                            <div
+                                                class="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center font-bold shrink-0">AI</div>
+                                            <div
+                                                class="flex-1 bg-white border border-slate-200 rounded-2xl rounded-tl-none px-4 py-4 shadow-sm">
+                                                <div x-show="msg.explain"
+                                                    class="mb-4" x-cloak>
+                                                    <h4
+                                                        class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">🧠
+                                                        Explicación (Plan de
+                                                        alto nivel)</h4>
+                                                    <div
+                                                        class="space-y-2 text-sm text-slate-700">
+                                                        <div><b>Intención:</b>
+                                                            <span
+                                                                x-text="msg.explain.intent_summary"></span></div>
+                                                        <div><b>Plan
+                                                                semántico:</b>
+                                                            <span
+                                                                x-text="msg.explain.semantic_plan_summary"></span></div>
+                                                        <div
+                                                            x-show="(msg.explain.relevant_concepts||[]).length"><b>Conceptos
+                                                                relevantes:</b>
+                                                            <span
+                                                                class="ml-1"><template
+                                                                    x-for="rc in msg.explain.relevant_concepts"
+                                                                    :key="rc.name"><span
+                                                                        class="pill mx-0.5"
+                                                                        x-text="rc.name+': '+(rc.aliases||[]).join(', ')"></span></template></span>
+                                                        </div>
+                                                        <div
+                                                            x-show="(msg.explain.relevant_tables||[]).length"><b>Tablas
+                                                                relevantes:</b>
+                                                            <span
+                                                                class="font-mono text-xs"
+                                                                x-text="msg.explain.relevant_tables.join(', ')"></span></div>
+                                                        <div><b>Resumen SQL:</b>
+                                                            <span
+                                                                x-text="msg.explain.sql_summary"></span></div>
+                                                        <div><b>Notas:</b> <span
+                                                                x-text="(msg.explain.execution_notes||[]).join(' · ') || '—'"></span></div>
+                                                        <div
+                                                            class="text-[11px] text-slate-500 mt-1">Disclaimer:
+                                                            <span
+                                                                x-text="msg.explain.disclaimer"></span></div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- RESPUESTA NL -->
+                                                <div x-show="msg.response"
+                                                    x-cloak>
+                                                    <div
+                                                        class="flex items-center justify-between gap-4 mb-2">
+                                                        <h4
+                                                            class="text-xs font-semibold text-slate-500 uppercase tracking-wide">💬
+                                                            Respuesta</h4>
+                                                        <div
+                                                            class="flex items-center gap-2 text-[11px] text-slate-500">
+                                                            <span
+                                                                x-text="msg.response.row_count+' fila(s)'"></span>
+                                                            <span>·</span>
+                                                            <span
+                                                                x-text="msg.response.execution_time_ms+' ms'"></span>
+                                                            <span
+                                                                x-show="msg.response.retries?.length">·
+                                                                retries: <span
+                                                                    x-text="msg.response.retries.length"></span></span>
+                                                        </div>
+                                                    </div>
+                                                    <div
+                                                        class="text-slate-800 leading-relaxed">
+                                                        <div
+                                                            class="text-base font-medium"
+                                                            x-show="msg.response.short_answer"
+                                                            x-text="msg.response.short_answer"></div>
+                                                        <div
+                                                            class="text-sm mt-2 text-slate-700"
+                                                            x-text="msg.response.answer"></div>
+                                                    </div>
+                                                    <div
+                                                        class="mt-3 flex flex-wrap gap-1 text-[11px]"
+                                                        x-show="(msg.response.disclaimers||[]).length">
+                                                        <template
+                                                            x-for="d in msg.response.disclaimers"
+                                                            :key="d"><span
+                                                                class="pill !bg-amber-50 !text-amber-700 !border-amber-200"
+                                                                x-text="d"></span></template>
+                                                    </div>
+                                                </div>
+
+                                                <!-- SEMANTIC PLAN -->
+                                                <div
+                                                    x-show="msg.response?.semantic_plan"
+                                                    class="mt-5" x-cloak>
+                                                    <details class="group" open>
+                                                        <summary
+                                                            class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 cursor-pointer select-none">🧩
+                                                            SemanticQueryPlan
+                                                            (QUÉ quiere el
+                                                            usuario) ▾</summary>
+                                                        <pre class="code"
+                                                            x-text="prettyJson(msg.response.semantic_plan)"></pre>
+                                                    </details>
+                                                </div>
+
+                                                <!-- SQL -->
+                                                <div x-show="msg.response?.sql"
+                                                    class="mt-4" x-cloak>
+                                                    <details class="group" open>
+                                                        <summary
+                                                            class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 cursor-pointer select-none">🗄️
+                                                            SQL generado
+                                                            (validado y READ
+                                                            ONLY) ▾</summary>
+                                                        <pre
+                                                            class="code whitespace-pre-wrap"
+                                                            x-text="msg.response.sql"></pre>
+                                                    </details>
+                                                </div>
+
+                                                <!-- DATOS -->
+                                                <div
+                                                    x-show="chatOpts.includeData && msg.response?.data?.length"
+                                                    class="mt-4" x-cloak>
+                                                    <h4
+                                                        class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">📋
+                                                        Datos devueltos
+                                                        (primeras filas)</h4>
+                                                    <div
+                                                        class="rounded-lg border border-slate-200 overflow-auto scroll-slim max-h-72">
+                                                        <table
+                                                            class="w-full text-xs">
+                                                            <thead
+                                                                class="bg-slate-50 text-slate-700">
+                                                                <tr>
+                                                                    <template
+                                                                        x-for="col in msg.response.columns"
+                                                                        :key="col">
+                                                                        <th
+                                                                            class="px-3 py-2 text-left font-medium border-b border-slate-200"
+                                                                            x-text="col"></th>
+                                                                    </template>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody
+                                                                class="divide-y divide-slate-100">
+                                                                <template
+                                                                    x-for="(row,ri) in msg.response.data.slice(0,50)"
+                                                                    :key="ri">
+                                                                    <tr
+                                                                        class="hover:bg-slate-50">
+                                                                        <template
+                                                                            x-for="col in msg.response.columns"
+                                                                            :key="col">
+                                                                            <td
+                                                                                class="px-3 py-2 text-slate-700 font-mono"
+                                                                                x-text="formatCell(row[col])"></td>
+                                                                        </template>
+                                                                    </tr>
+                                                                </template>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                    <div
+                                                        class="mt-2 text-[11px] text-slate-500"
+                                                        x-show="msg.response.data.length > 50"
+                                                        x-cloak>
+                                                        Mostrando 50 de <span
+                                                            x-text="msg.response.data.length"></span>
+                                                        filas.
+                                                        context_version=<span
+                                                            class="font-mono"
+                                                            x-text="msg.response.context_version||'—'"></span>
+                                                        · request_id=<span
+                                                            class="font-mono"
+                                                            x-text="msg.response.request_id||'—'"></span>
+                                                    </div>
+                                                    <div
+                                                        class="mt-2 text-[11px] text-slate-500"
+                                                        x-show="msg.response.data.length <= 50">
+                                                        context_version=<span
+                                                            class="font-mono"
+                                                            x-text="msg.response.context_version||'—'"></span>
+                                                        · request_id=<span
+                                                            class="font-mono"
+                                                            x-text="msg.response.request_id||'—'"></span>
+                                                    </div>
+                                                </div>
+
+                                                <!-- ERROR -->
+                                                <div x-show="msg.error"
+                                                    class="mt-4 border border-rose-200 bg-rose-50 text-rose-800 rounded-lg px-4 py-3 text-sm"
+                                                    x-cloak>
+                                                    <div
+                                                        class="font-semibold mb-1">❌
+                                                        Error en la
+                                                        consulta</div>
+                                                    <div
+                                                        x-text="msg.error"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div x-show="!messages.length"
+                                    class="text-center text-sm text-slate-500 border border-dashed border-slate-300 rounded-xl py-10">
+                                    💡 Escribí una pregunta arriba y presioná
+                                    Enviar (o Enter). Recomendación: usá los
+                                    botones de ejemplo.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SIDEBAR DERECHA: INFO CONTEXTO ACTIVA -->
+                    <aside class="space-y-4">
+                        <div
+                            class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                            <h3
+                                class="text-sm font-semibold text-slate-900 mb-3">🔌
+                                Contexto activo</h3>
+                            <dl class="text-xs text-slate-600 space-y-2">
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Connection
+                                        ID</dt><dd
+                                        class="font-mono truncate max-w-[55%]"
+                                        x-text="connectionId?.slice(0,18)+'…' || '—'">—</dd></div>
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Status</dt><dd><span
+                                            class="w-2 h-2 rounded-full inline-block mr-1"
+                                            :class="statusColor(discovery.status)"></span><span
+                                            class="uppercase font-semibold"
+                                            x-text="discovery.status || 'IDLE'"></span></dd></div>
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Context
+                                        version</dt><dd class="font-mono"
+                                        x-text="discovery.context_version || '—'"></dd></div>
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Domains</dt><dd
+                                        x-text="contextSummary?.domains ?? 0"></dd></div>
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Entities</dt><dd
+                                        x-text="contextSummary?.entities ?? 0"></dd></div>
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Concepts</dt><dd
+                                        x-text="contextSummary?.concepts ?? 0"></dd></div>
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Metrics</dt><dd
+                                        x-text="contextSummary?.metrics ?? 0"></dd></div>
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Dimensions</dt><dd
+                                        x-text="contextSummary?.dimensions ?? 0"></dd></div>
+                                <div class="flex justify-between"><dt
+                                        class="font-medium text-slate-500">Tables</dt><dd
+                                        x-text="contextSummary?.tables ?? 0"></dd></div>
+                            </dl>
+                        </div>
+                        <div
+                            class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                            <h3
+                                class="text-sm font-semibold text-slate-900 mb-3">🔎
+                                Buscar glosario</h3>
+                            <input x-model="termFilter"
+                                @input.debounce.300ms="searchTerminology(termFilter)"
+                                type="text"
+                                placeholder="ej: empleado, revenue, facturacion"
+                                class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+                            <ul
+                                class="mt-4 text-xs space-y-1 max-h-72 overflow-auto scroll-slim">
+                                <template x-for="t in terminologySearch"
+                                    :key="t.term+t.canonical_form">
+                                    <li
+                                        class="px-3 py-2 rounded hover:bg-slate-50 flex items-center gap-2">
+                                        <span class="pill !py-0"
+                                            x-text="t.type"></span>
+                                        <div class="flex-1 min-w-0">
+                                            <div
+                                                class="font-medium text-slate-800 truncate"
+                                                x-text="t.term"></div>
+                                            <div class="text-slate-500 truncate"
+                                                x-text="t.canonical_form + ' · ' + ((t.aliases||[]).join(' · ') || '—')"></div>
+                                        </div>
+                                    </li>
+                                </template>
+                                <li
+                                    x-show="!termFilter && !terminologySearch.length"
+                                    class="text-slate-500 italic px-3 py-1">Escribí
+                                    algo para buscar.</li>
+                                <li
+                                    x-show="termFilter && !terminologySearch.length"
+                                    class="text-slate-500 italic px-3 py-1">Sin
+                                    coincidencias.</li>
+                            </ul>
+                        </div>
+                        <div
+                            class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-xs text-slate-600 leading-relaxed">
+                            <h3
+                                class="text-sm font-semibold text-slate-900 mb-3">🔒
+                                Seguridad SQL</h3>
+                            <ul class="list-disc pl-4 space-y-1">
+                                <li>El LLM <b>nunca ejecuta SQL</b> ni toca
+                                    credenciales.</li>
+                                <li>Validador AST (<code
+                                        class="bg-slate-100 px-1 rounded">sqlglot</code>)
+                                    + lista blanca tablas/esquemas.</li>
+                                <li>Transacción <code
+                                        class="bg-slate-100 px-1 rounded">READ
+                                        ONLY</code>, <code
+                                        class="bg-slate-100 px-1 rounded">statement_timeout</code>,
+                                    <code
+                                        class="bg-slate-100 px-1 rounded">MAX_QUERY_ROWS</code>.</li>
+                                <li>Usuario Postgres <b>sólo SELECT</b>
+                                    recomendado.</li>
+                            </ul>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+        </main>
+
+        <footer
+            class="max-w-[1400px] mx-auto px-6 py-6 text-xs text-slate-500 flex items-center justify-between">
+            <div>© {{ versions.app_name }} · <a href="/docs" target="_blank"
+                    class="text-brand-700 hover:underline">Swagger /docs</a> ·
+                <a href="/openapi.json" target="_blank"
+                    class="text-brand-700 hover:underline">OpenAPI.json</a></div>
+            <div>Built con FastAPI + Alpine.js + Tailwind · Sin build
+                step.</div>
+        </footer>
+
+        <script>
+function dbAgent() {
+  const API = '/api/v1';
+  const STORAGE_KEY = 'db_agent_ui_state_v1';
+
+  return {
+    // TABS
+    activeTab: 'connection',
+    activeContextTab: 'domains',
+    contextTabs: [
+      {key:'domains',  label:'Dominios'},
+      {key:'entities', label:'Entidades'},
+      {key:'concepts', label:'Conceptos'},
+      {key:'metrics',  label:'Métricas'},
+      {key:'dimensions', label:'Dimensiones'},
+      {key:'terminology', label:'Glosario'},
+      {key:'tables',   label:'Schema'},
+    ],
+
+    // HEALTH
+    health: { metadata_db: 'unknown', llm: 'unknown' },
+
+    // CONEXIÓN
+    conn: { database_type:'postgresql', host:'localhost', port:5432, database_name:'empresa_hr', username:'db_agent_ro', password:'', schema:'public', ssl_mode: null },
+    testResult: { ok: null, message:'', masked_url:'' },
+    busyConn: false,
+    connectionId: null,
+    connections: [],
+
+    // DISCOVERY
+    discovery: { status: 'IDLE', current_step: null, completed_steps: 0, total_steps: 19, error_message: null, started_at: null, finished_at: null, context_version: null },
+    discoverySteps: [],
+    busyDiscovery: false,
+    polling: false,
+    _pollingHandle: null,
+
+    // CONTEXTO
+    knowledgeMap: { domains:[], entities:[], concepts:[], metrics:[], dimensions:[], terminology:[], tables:[] },
+    contextSummary: null,
+    termFilter: '',
+    terminologySearch: [],
+
+    // CHAT
+    chatQuestion: '',
+    busyQuestion: false,
+    chatOpts: { explain: true, includeData: true },
+    messages: [],
+
+    // TOAST
+    toast: { show:false, variant:'info', title:'', detail:'' },
+
+    // ============ LIFECYCLE ============
+    async initFromStorage() {
+      try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+        if (saved.conn) this.conn = Object.assign(this.conn, saved.conn);
+        if (saved.connectionId) this.connectionId = saved.connectionId;
+      } catch {}
+      await this.refreshHealth();
+      await this.refreshConnections();
+      if (this.connectionId) {
+        await this.pollStatusOnce();
+        await this.loadContext();
+      }
+      this.startPolling();
+    },
+    persist() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({conn: this.conn, connectionId: this.connectionId})); } catch {}
+    },
+    startPolling() {
+      this.polling = true;
+      if (this._pollingHandle) return;
+      this._pollingHandle = setInterval(() => { if (this.polling && this.connectionId) this.pollStatusOnce().catch(()=>{}); }, 2000);
+    },
+    togglePolling() {
+      this.polling = !this.polling;
+      if (!this.polling && this._pollingHandle) { clearInterval(this._pollingHandle); this._pollingHandle = null; }
+      else this.startPolling();
+    },
+
+    // ============ UTILS ============
+    showToast(variant, title, detail='') { this.toast = { show:true, variant, title, detail }; setTimeout(()=> this.toast.show=false, 4500); },
+    prettyJson(obj) { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } },
+    formatCell(v) { if (v===null||v===undefined) return 'NULL'; if (typeof v === 'object') return JSON.stringify(v); return String(v); },
+    statusColor(s) { if (!s || s==='IDLE') return 'bg-slate-400'; if (s==='READY') return 'bg-emerald-500'; if (s==='ERROR') return 'bg-rose-500'; if (s==='CONNECTING'||s==='DISCOVERING'||s==='BUILDING_KNOWLEDGE_MAP'||s==='GENERATING_EMBEDDINGS') return 'bg-brand-500 animate-pulse'; return 'bg-amber-500'; },
+    stepIcon(st) { return st==='done'?'✅':st==='running'?'⏳':st==='error'?'❌':'◻'; },
+    progressStyle() { const c = +(this.discovery.completed_steps||0); const t = +(this.discovery.total_steps||19)||1; return `width:${Math.min(100, (c/t)*100)}%`; },
+
+    // ============ HEALTH ============
+    async refreshHealth() {
+      try { const r = await fetch(API+'/health'); const d = await r.json();
+        this.health.metadata_db = d.metadata_db || 'unknown';
+        this.health.llm = d.llm || 'unknown';
+      } catch (e) { this.health.metadata_db = 'error'; }
+    },
+
+    // ============ CONNECTION ============
+    async testConnection() {
+      this.busyConn = true;
+      try { const r = await fetch(API+'/database/test-connection', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.conn)});
+        const d = await r.json(); this.testResult = { ok: !!d.ok, message: d.message || (r.ok ? 'Conexión OK' : 'Sin detalles'), masked_url: d.masked_url || '' };
+        if (d.ok) this.showToast('success','Conexión OK', d.message||''); else this.showToast('error','Falló la conexión', d.message||JSON.stringify(d));
+      } catch (e) { this.testResult = { ok:false, message: String(e) }; this.showToast('error','Falló la conexión', String(e)); }
+      finally { this.busyConn = false; }
+    },
+    async connect() {
+      this.busyConn = true;
+      try { const r = await fetch(API+'/database/connect', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.conn)});
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json(); this.connectionId = d.connection_id;
+        this.persist();
+        this.showToast('success','Conexión guardada', 'ID: '+d.connection_id.slice(0,13)+'…');
+        await this.refreshConnections();
+        await this.pollStatusOnce();
+      } catch (e) { this.showToast('error','No se pudo conectar', String(e)); }
+      finally { this.busyConn = false; }
+    },
+    async refreshConnections() {
+      try { const r = await fetch(API+'/database/connections'); if (r.ok) this.connections = (await r.json())||[]; } catch {}
+    },
+    async selectConnection(id, ready) { this.connectionId = id; this.persist(); await this.pollStatusOnce(); if (ready) { await this.loadContext(); this.activeTab='context'; } this.showToast('info','Conexión seleccionada'); },
+    async deleteConnection(id) { if (!confirm('Eliminar esta conexión?')) return;
+      try { await fetch(API+'/database/connections/'+id, {method:'DELETE'}); this.showToast('success','Eliminada'); if (this.connectionId===id) this.connectionId=null; this.persist(); await this.refreshConnections(); } catch (e) { this.showToast('error','Error eliminando', String(e)); }
+    },
+
+    // ============ DISCOVERY ============
+    async runDiscovery() {
+      this.busyDiscovery = true;
+      try { const r = await fetch(API+'/database/discover', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({connection_id: this.connectionId, force: true})});
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        this.showToast('success','Discovery iniciado', 'Status: '+d.status);
+        setTimeout(()=> this.pollStatusOnce(), 1200);
+      } catch (e) { this.showToast('error','Discovery falló', String(e)); }
+      finally { this.busyDiscovery = false; }
+    },
+    async pollStatusOnce() { if (!this.connectionId) return;
+      try {
+        const r = await fetch(API+'/database/discovery/status?connection_id='+encodeURIComponent(this.connectionId));
+        if (!r.ok) return;
+        const d = await r.json();
+        this.discovery = { status: d.status||'IDLE', current_step: d.current_step||null, completed_steps: +(d.completed_steps||0), total_steps: +(d.total_steps||19), error_message: d.error_message||null, started_at: d.started_at, finished_at: d.finished_at, context_version: d.context_version||null };
+        if (Array.isArray(d.steps)) this.discoverySteps = d.steps;
+        if (this.discovery.status==='READY') await this.loadContext();
+      } catch {}
+    },
+
+    // ============ CONTEXTO ============
+    async loadContext() { if (!this.connectionId) return;
+      try { const r = await fetch(API+'/database/knowledge-map?connection_id='+encodeURIComponent(this.connectionId));
+        if (r.ok) { const km = await r.json(); this.knowledgeMap = km || this.knowledgeMap;
+          this.contextSummary = {
+            domains: (this.knowledgeMap.domains||[]).length,
+            entities: (this.knowledgeMap.entities||[]).length,
+            concepts: (this.knowledgeMap.concepts||[]).length,
+            metrics: (this.knowledgeMap.metrics||[]).length,
+            dimensions: (this.knowledgeMap.dimensions||[]).length,
+            tables: (this.knowledgeMap.tables||[]).length,
+            terminology: (this.knowledgeMap.terminology||[]).length,
+          };
+        }
+      } catch {}
+    },
+    async searchTerminology(q) {
+      q = (q||'').trim().toLowerCase();
+      if (!q) { this.terminologySearch = (this.knowledgeMap.terminology||[]).slice(0,20); return; }
+      this.terminologySearch = (this.knowledgeMap.terminology||[]).filter(t => {
+        const bag = [t.term, t.canonical_form, t.target_code, t.type, ...(t.aliases||[])].join(' ').toLowerCase();
+        return bag.includes(q);
+      }).slice(0,50);
+    },
+
+    // ============ CHAT ============
+    async sendQuestion() {
+      if (!this.connectionId) { this.showToast('error','Sin conexión', 'Seleccioná o creá una conexión primero.'); return; }
+      if (!this.chatQuestion.trim()) return;
+      this.busyQuestion = true;
+      const q = this.chatQuestion;
+      this.chatQuestion = '';
+
+      const currentExplain = !!this.chatOpts.explain;
+      let explainResult = null;
+      let queryError = null;
+      let queryResult = null;
+
+      try {
+        if (currentExplain) {
+          try {
+            const r = await fetch(API+'/query/explain', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({connection_id:this.connectionId, question: q})});
+            if (r.ok) explainResult = await r.json();
+          } catch {}
+        }
+        const r = await fetch(API+'/query', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({connection_id:this.connectionId, question: q})}, {credentials: 'same-origin'});
+        if (!r.ok) { const text = await r.text(); queryError = `HTTP ${r.status} · ${text.slice(0,400)}`; }
+        else queryResult = await r.json();
+      } catch (e) { queryError = String(e); }
+
+      const entry = {
+        question: q.trim(),
+        response: queryResult,
+        explain: explainResult,
+        error: queryError,
+      };
+
+      this.messages = [entry, ...this.messages];
+      try { this.persist(); } catch {}
+      this.busyQuestion = false;
+      try {
+        if (this.$nextTick) await this.$nextTick();
+        else await new Promise(r => setTimeout(r, 30));
+      } catch {}
+      setTimeout(() => { const el = document.getElementById('chat-history'); if (el) el.scrollTop = 0; }, 50);
+    },
+    async useExample(text) {
+      this.chatQuestion = text || '';
+      try {
+        if (this.$nextTick) await this.$nextTick();
+        else await new Promise(r => setTimeout(r, 20));
+      } catch {}
+      const ta = document.getElementById('chat-input');
+      if (ta) { try { ta.focus(); } catch {} }
+    }
+  };
+}
+</script>
+    </body>
+</html>
