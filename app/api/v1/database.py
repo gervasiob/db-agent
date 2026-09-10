@@ -12,6 +12,7 @@ from app.models.database import (
     DatabaseConnectionResponse,
     DatabaseMetadata,
 )
+from app.api.v1._deps import require_agent
 
 if TYPE_CHECKING:
     from app.agents.database_agent import DatabaseAgent
@@ -22,14 +23,7 @@ router = APIRouter(prefix="/database")
 
 
 def get_agent(request: Request) -> "DatabaseAgent":
-    agent = getattr(request.app.state, "agent", None)
-    if agent is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="DatabaseAgent is not initialized on the application. "
-            "Verify the server lifespan started correctly and metadata DB is reachable.",
-        )
-    return agent
+    return require_agent(request)
 
 
 @router.post(

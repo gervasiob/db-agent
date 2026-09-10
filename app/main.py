@@ -64,29 +64,36 @@ async def lifespan(app: FastAPI):
         },
     )
     metadata_ok = True
+    metadata_error: str | None = None
+    session_factory = None
+    agent = None
+    agent_init_error: str | None = None
     try:
         await init_metadata_db(verify_connection=True)
         logger.info("Metadata database initialized")
     except Exception as exc:
         metadata_ok = False
+        metadata_error = f"{type(exc).__name__}: {exc}"
         logger.warning(
             "Metadata database initialization failed; continuing in degraded mode",
             exc_info=exc,
         )
-    session_factory = None
-    agent = None
     try:
         if metadata_ok:
             session_factory = get_async_session_factory()
             agent = DatabaseAgent(session_factory)
         else:
             agent = None
+            agent_init_error = f"Metadata DB init failed: {metadata_error}"
     except Exception as exc:
+        agent_init_error = f"{type(exc).__name__}: {exc}"
         logger.warning("Could not instantiate DatabaseAgent", exc_info=exc)
         agent = None
     app.state.agent = agent
     app.state.metadata_ok = metadata_ok
-    logger.info("Application ready")
+    app.state.metadata_error = metadata_error
+    app.state.agent_init_error = agent_init_error
+    logger.info("Application ready", extra={"metadata_ok": metadata_ok, "agent_ok": agent is not None})
     yield
     logger.info("Shutting down application")
     app.state.agent = None
@@ -133,11 +140,6 @@ app = create_app()
 
 
 def get_agent(request: Request) -> DatabaseAgent:
-    agent = getattr(request.app.state, "agent", None)
-    if agent is None:
-        from app.core.exceptions import DatabaseConnectionError
+    from app.api.v1._deps import require_agent
 
-        raise DatabaseConnectionError(
-            detail="DatabaseAgent is not initialized. Check metadata DB connectivity.",
-        )
-    return agent
+    return require_agent(request)

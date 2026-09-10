@@ -188,8 +188,6 @@ def build_connection_string(config: DatabaseConfig, *, include_query: bool = Tru
             query_params.append("ApplicationIntent=ReadOnly")
         if config.database_type == "mysql":
             query_params.append(f"connect_timeout={config.connect_timeout}")
-        if config.ssl_mode and db_type == "postgresql":
-            query_params.append(f"sslmode={config.ssl_mode}")
         if query_params:
             joined = "&".join(query_params)
             raw = f"{raw}?{joined}"

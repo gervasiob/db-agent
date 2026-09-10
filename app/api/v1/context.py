@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from app.api.v1._deps import require_agent
 from app.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -16,14 +17,7 @@ router = APIRouter(prefix="/context")
 
 
 def get_agent(request: Request) -> "DatabaseAgent":
-    agent = getattr(request.app.state, "agent", None)
-    if agent is None:
-        raise HTTPException(
-            status_code=503,
-            detail="DatabaseAgent is not initialized on the application. "
-            "Verify the server lifespan started correctly and metadata DB is reachable.",
-        )
-    return agent
+    return require_agent(request)
 
 
 @router.get(

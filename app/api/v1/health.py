@@ -38,20 +38,32 @@ def _llm_status() -> str:
 
 
 @router.get("", summary="Liveness + dependencies status")
-async def health_status() -> dict[str, Any]:
-    return {
+async def health_status(request: Request) -> dict[str, Any]:
+    state = request.app.state
+    agent = getattr(state, "agent", None)
+    metadata_ok = getattr(state, "metadata_ok", None)
+    metadata_error = getattr(state, "metadata_error", None)
+    agent_init_error = getattr(state, "agent_init_error", None)
+    result: dict[str, Any] = {
         "status": "ok",
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "metadata_db": await _metadata_status(),
+        "metadata_ok": metadata_ok,
+        "agent_initialized": agent is not None,
         "llm": _llm_status(),
     }
+    if metadata_error:
+        result["metadata_error"] = metadata_error
+    if agent_init_error:
+        result["agent_init_error"] = agent_init_error
+    return result
 
 
 @router.get("/ready", summary="Readiness probe")
-async def health_ready() -> dict[str, Any]:
-    base = await health_status()
-    ready = base["metadata_db"] == "connected"
+async def health_ready(request: Request) -> dict[str, Any]:
+    base = await health_status(request)
+    ready = base["metadata_db"] == "connected" and base["agent_initialized"] is True
     base["ready"] = ready
     return base
 
