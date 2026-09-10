@@ -158,6 +158,19 @@ class SQLExecutionService:
                     "Could not set statement_timeout or read-only transaction mode",
                     extra={"error": str(exc)},
                 )
+        elif config.database_type == "sqlserver":
+            timeout_ms = int(timeout_seconds * 1000)
+            try:
+                await session.execute(text(f"SET LOCK_TIMEOUT = {timeout_ms}"))
+            except Exception as exc:
+                logger.warning("Could not set SQL Server LOCK_TIMEOUT", extra={"error": str(exc)})
+            try:
+                await session.execute(text("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"))
+            except Exception:
+                try:
+                    await session.execute(text("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"))
+                except Exception:
+                    pass
 
     async def _execute_query(
         self,

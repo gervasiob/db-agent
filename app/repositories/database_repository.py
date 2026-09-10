@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -238,11 +238,26 @@ class DatabaseConnectionRepository:
                             server_info["version"] = version_row[0]
                     elif config.database_type == "sqlserver":
                         version_result = await conn.execute(
-                            func.text("SELECT @@VERSION")
+                            text("SELECT CAST(@@VERSION AS NVARCHAR(4000)) AS version, DB_NAME() AS current_database, SUSER_SNAME() AS current_user, @@SERVERNAME AS server_name, GETDATE() AS server_time")
                         )
                         version_row = version_result.fetchone()
                         if version_row:
-                            server_info["version"] = version_row[0]
+                            if version_row[0]:
+                                server_info["version"] = str(version_row[0])
+                            if len(version_row) > 1 and version_row[1]:
+                                server_info["current_database"] = str(version_row[1])
+                            if len(version_row) > 2 and version_row[2]:
+                                server_info["current_user"] = str(version_row[2])
+                            if len(version_row) > 3 and version_row[3]:
+                                server_info["server"] = str(version_row[3])
+                            if len(version_row) > 4 and version_row[4]:
+                                server_info["server_time"] = str(version_row[4])
+                        try:
+                            compat_result = await conn.execute(text("SELECT name, value_in_use FROM sys.configurations WHERE name IN ('show advanced options', 'max degree of parallelism')"))
+                            for row in compat_result.mappings().all():
+                                server_info[f"cfg_{row['name']}"] = row["value_in_use"]
+                        except Exception:
+                            pass
                     server_info["database_type"] = config.database_type
                     server_info["host"] = config.host
                     server_info["port"] = config.port

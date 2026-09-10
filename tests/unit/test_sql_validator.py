@@ -87,3 +87,43 @@ def test_sql_validator_unknown_column(validator: SqlValidator, sample_users_tabl
     )
     with pytest.raises(SQLValidationError):
         validator.validate_columns_exist(validated, [sample_users_table])
+
+
+_MSSQL_ALLOWED_TABLES = ["dbo.customers", "dbo.users", "customers", "users"]
+
+
+def test_mssql_top10_passes(validator: SqlValidator) -> None:
+    sql = "SELECT TOP 10 Id, Name FROM dbo.Customers ORDER BY CreatedAt DESC;"
+    result = validator.validate_read_only(
+        sql,
+        dialect="sqlserver",
+        allowed_tables=_MSSQL_ALLOWED_TABLES,
+    )
+    assert result is not None
+    assert result.is_readonly is True
+    assert result.validated_sql
+
+
+def test_mssql_sys_schema_passes(validator: SqlValidator) -> None:
+    sql = (
+        "SELECT t.name AS table_name, c.name AS column_name "
+        "FROM sys.tables t JOIN sys.columns c ON t.object_id = c.object_id;"
+    )
+    result = validator.validate_read_only(
+        sql,
+        dialect="sqlserver",
+        allowed_tables=[],
+    )
+    assert result is not None
+    assert result.is_readonly is True
+    assert result.validated_sql
+
+
+def test_mssql_delete_blocked(validator: SqlValidator) -> None:
+    sql = "DELETE FROM dbo.Users;"
+    with pytest.raises(SQLValidationError):
+        validator.validate_read_only(
+            sql,
+            dialect="sqlserver",
+            allowed_tables=_MSSQL_ALLOWED_TABLES,
+        )

@@ -117,9 +117,18 @@ class DatabaseAdapter(ABC):
 
         registry: dict[str, type[DatabaseAdapter]] = {
             "postgresql": PostgreSQLAdapter,
-            "sqlserver": SQLServerAdapter,
-            "mysql": MySQLAdapter,
         }
+        try:
+            from app.database.adapters.sqlserver import SQLServerAdapter  # noqa: F811
+            registry["sqlserver"] = SQLServerAdapter
+        except ImportError:
+            pass
+        try:
+            # placeholder para MySQL (no implementado aún)
+            from app.database.adapters.mysql import MySQLAdapter  # type: ignore  # noqa: F811
+            registry["mysql"] = MySQLAdapter
+        except ImportError:
+            pass
         adapter_cls = registry.get(database_type.lower())
         if adapter_cls is None:
             raise DatabaseDiscoveryError(

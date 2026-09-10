@@ -110,11 +110,12 @@ tailwind.config = {
                                     class="text-xs font-medium text-slate-600">Tipo
                                     de base</span>
                                 <select x-model="conn.database_type"
+                                    @change="onDbTypeChange($event.target.value)"
                                     class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
                                     <option
                                         value="postgresql">PostgreSQL</option>
-                                    <option value="sqlserver" disabled>SQL
-                                        Server (próximamente)</option>
+                                    <option value="sqlserver">SQL
+                                        Server</option>
                                     <option value="mysql" disabled>MySQL
                                         (próximamente)</option>
                                 </select>
@@ -321,7 +322,7 @@ tailwind.config = {
                                         class="px-6 py-3 hover:bg-slate-50 flex items-center gap-4 text-sm">
                                         <div
                                             class="w-9 h-9 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold uppercase"
-                                            x-text="c.database_type?.slice(0,3) || 'pg'">pg</div>
+                                            x-text="({postgresql:'pg',sqlserver:'sql',mysql:'mys'}[c.database_type] || c.database_type?.slice(0,3) || 'pg')">pg</div>
                                         <div class="flex-1 min-w-0">
                                             <div
                                                 class="font-medium text-slate-900 truncate"
@@ -1337,6 +1338,11 @@ function dbAgent() {
     },
 
     // ============ UTILS ============
+    onDbTypeChange(t) {
+      if (t === 'sqlserver') { this.conn = Object.assign({}, this.conn, { port:1433, schema:'dbo', ssl_mode:'disable' }); }
+      else if (t === 'postgresql') { this.conn = Object.assign({}, this.conn, { port:5432, schema:'public', ssl_mode:null }); }
+      else if (t === 'mysql') { this.conn = Object.assign({}, this.conn, { port:3306, schema:'public', ssl_mode:null }); }
+    },
     showToast(variant, title, detail='') { this.toast = { show:true, variant, title, detail }; setTimeout(()=> this.toast.show=false, 4500); },
     prettyJson(obj) { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } },
     formatCell(v) { if (v===null||v===undefined) return 'NULL'; if (typeof v === 'object') return JSON.stringify(v); return String(v); },

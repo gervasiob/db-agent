@@ -149,7 +149,12 @@ class SqlValidator:
             )
 
         target_dialect = _normalize_dialect(dialect)
-        sqlglot_dialect = "postgres" if target_dialect == "postgresql" else target_dialect
+        if target_dialect == "postgresql":
+            sqlglot_dialect = "postgres"
+        elif target_dialect == "sqlserver":
+            sqlglot_dialect = "tsql"
+        else:
+            sqlglot_dialect = target_dialect
 
         parsed_statements = self._parse_statements(cleaned_sql, sqlglot_dialect)
         if len(parsed_statements) != 1:
@@ -205,7 +210,7 @@ class SqlValidator:
                 iter(
                     self._parse_statements(
                         validated.validated_sql,
-                        "postgres" if validated.dialect == "postgresql" else (validated.dialect or "postgres"),
+                        "postgres" if validated.dialect == "postgresql" else ("tsql" if validated.dialect == "sqlserver" else (validated.dialect or "postgres")),
                     )
                 ),
                 None,
@@ -235,8 +240,8 @@ class SqlValidator:
 
         referenced_columns = set(validated.columns)
         unknown_columns: list[str] = []
-        SAFE_SYSTEM_SCHEMAS_LOWER = {"information_schema", "pg_catalog", "pg_toast"}
-        SAFE_SYSTEM_PREFIX_LOWER = {"pg_", "gp_"}
+        SAFE_SYSTEM_SCHEMAS_LOWER = {"information_schema", "pg_catalog", "pg_toast", "sys"}
+        SAFE_SYSTEM_PREFIX_LOWER = {"pg_", "gp_", "spt_", "MSsnapshot", "MSmerge", "sysx", "dtproperties"}
 
         def _is_system_table_ref(col_str: str) -> bool:
             raw = str(col_str).strip().strip("`\"'").lower()
@@ -285,7 +290,7 @@ class SqlValidator:
                 iter(
                     self._parse_statements(
                         validated.validated_sql,
-                        "postgres" if validated.dialect == "postgresql" else (validated.dialect or "postgres"),
+                        "postgres" if validated.dialect == "postgresql" else ("tsql" if validated.dialect == "sqlserver" else (validated.dialect or "postgres")),
                     )
                 ),
                 None,
@@ -522,8 +527,8 @@ class SqlValidator:
             return
         cte_set = {a.lower() for a in (cte_aliases or set())}
         allowed_set_lower = {t.lower() for t in allowed_tables}
-        SAFE_SYSTEM_SCHEMAS_LOWER = {"information_schema", "pg_catalog", "pg_toast"}
-        SAFE_SYSTEM_PREFIX_LOWER = {"pg_", "gp_"}
+        SAFE_SYSTEM_SCHEMAS_LOWER = {"information_schema", "pg_catalog", "pg_toast", "sys"}
+        SAFE_SYSTEM_PREFIX_LOWER = {"pg_", "gp_", "spt_", "MSsnapshot", "MSmerge", "sysx", "dtproperties"}
         for t in tables:
             qualified = self._table_qualified_name(t)
             qualified_lower = qualified.lower()
@@ -555,7 +560,7 @@ class SqlValidator:
         if allowed_schemas is None:
             return
         allowed_set_lower = {s.lower() for s in allowed_schemas}
-        SAFE_SYSTEM_SCHEMAS_LOWER = {"information_schema", "pg_catalog", "pg_toast"}
+        SAFE_SYSTEM_SCHEMAS_LOWER = {"information_schema", "pg_catalog", "pg_toast", "sys"}
         for t in tables:
             schema_part = getattr(t, "db", None) or getattr(t, "catalog", None)
             if schema_part is None or str(schema_part).strip() == "":

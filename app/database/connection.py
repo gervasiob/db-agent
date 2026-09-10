@@ -72,10 +72,18 @@ class DatabaseConfig(BaseModel):
 
     @field_validator("username")
     @classmethod
-    def validate_username(cls, v: str) -> str:
-        stripped = v.strip()
+    def validate_username(cls, v: str, info) -> str:
+        stripped = (v or "").strip()
         if not stripped:
-            raise ValueError("username cannot be empty")
+            data = getattr(info, "data", None)
+            db_type = None
+            if isinstance(data, dict):
+                db_type = data.get("database_type")
+            elif hasattr(data, "database_type"):
+                db_type = getattr(data, "database_type", None)
+            if db_type is not None and str(db_type).lower() not in {"sqlserver", "mssql", "tsql"}:
+                raise ValueError("username cannot be empty")
+            return ""
         if len(stripped) > 128:
             raise ValueError("username exceeds maximum length of 128 characters")
         return stripped
@@ -150,12 +158,34 @@ def build_connection_string(config: DatabaseConfig, *, include_query: bool = Tru
     host = config.host
     port = config.port
     db = quote_plus(config.database_name)
-    authority = f"{user}:{password}@{host}:{port}"
-    redacted_authority = f"{user}:***@{host}:{port}"
+    if db_type == "sqlserver" and not user and not password:
+        authority = f"{host}:{port}"
+        redacted_authority = f"{host}:{port}"
+    else:
+        authority = f"{user}:{password}@{host}:{port}"
+        redacted_authority = f"{user}:***@{host}:{port}"
     raw = f"{driver}://{authority}/{db}"
     redacted = f"{driver}://{redacted_authority}/{db}"
     if include_query:
         query_params: list[str] = []
+        if config.database_type == "sqlserver":
+            default_odbc = "ODBC Driver 18 for SQL Server"
+            query_params.append(f"DRIVER={quote_plus(default_odbc)}")
+            if not user and not password:
+                query_params.append("Trusted_Connection=Yes")
+            ssl_mode = (config.ssl_mode or "prefer").lower().strip()
+            if ssl_mode in {"disable", "allow", "prefer"}:
+                query_params.append("Encrypt=Optional")
+                query_params.append("TrustServerCertificate=Yes")
+            else:
+                query_params.append("Encrypt=Mandatory")
+                if ssl_mode == "require":
+                    query_params.append("TrustServerCertificate=Yes")
+                else:
+                    query_params.append("TrustServerCertificate=No")
+            query_params.append(f"Connection Timeout={int(config.connect_timeout)}")
+            query_params.append("MARS_Connection=Yes")
+            query_params.append("ApplicationIntent=ReadOnly")
         if config.database_type == "mysql":
             query_params.append(f"connect_timeout={config.connect_timeout}")
         if config.ssl_mode and db_type == "postgresql":
@@ -180,6 +210,10 @@ def build_connect_args(config: DatabaseConfig) -> MutableMapping[str, Any]:
             connect_args["ssl"] = config.ssl_mode != "disable"
     elif config.database_type == "mysql":
         connect_args.setdefault("charset", "utf8mb4")
+    elif config.database_type == "sqlserver":
+        connect_args.pop("timeout", None)
+        connect_args.setdefault("autocommit", False)
+        connect_args.setdefault("ansi", True)
     return connect_args
 
 

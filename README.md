@@ -124,6 +124,7 @@ Conversational Analytics Platform — Semantic Layer over PostgreSQL with FastAP
 | Python | **3.12** | `pyproject.toml:5` → `requires-python = ">=3.12,<3.13"`. No funciona con 3.13 por restricción de dependencias |
 | PostgreSQL | ≥ **14**, recomendado ≥ **16** | Metadata DB usa `pgvector`; también hay targets de negocio |
 | Extensión `pgvector` | ≥ **0.7** | `CREATE EXTENSION IF NOT EXISTS vector` en **ambas** bases: metadata + target (si querés semantic retrieval sobre datos target) |
+| ODBC Driver 18 for SQL Server | 18.x | **Solo si usás targets SQL Server / Azure SQL**. Ver sección SQL Server Setup abajo. |
 | `uv` (gestor de paquetes) | ≥ 0.4 | Reemplaza a `pip`/`pip-tools`/`venv`; instala `pyproject.toml` |
 | OpenAI | API key válida | Generación SQL + embeddings semantic retrieval |
 | CPU / RAM | 1 vCPU / 1 GB RAM mínimo | Para 1–2 conexiones y esquemas de <200 tablas. Discovery inicial ~40–90 s (GPT-5-mini + ~12 LLM calls por schema pequeño). Para schemas >500 tablas usar ≥ 2 vCPU / 2 GB RAM |
@@ -755,6 +756,68 @@ ALTER ROLE db_agent_ro SET idle_in_transaction_session_timeout = '30s';
 
 ---
 
+## SQL Server Setup (solo para targets MSSQL / Azure SQL)
+
+El agente usa `mssql+aioodbc` + `pyodbc`, que requiere **ODBC Driver 18 for SQL Server** instalado a nivel SO (no es una wheel Python pura).
+
+### 1) Instalar ODBC Driver 18
+
+```powershell
+# Windows (winget / PowerShell — recomendado)
+winget install Microsoft.ODBC.Driver.18.SQLServer
+
+# — o descarga MSI desde: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server
+```
+
+```bash
+# Ubuntu 22.04 / 24.04 LTS
+curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+sudo apt-get update
+sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+```
+
+```bash
+# macOS (Homebrew) — requiere brew tap microsoft
+brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
+brew update
+HOMEBREW_ACCEPT_EULA=Y brew install msodbcsql18 mssql-tools
+```
+
+> ⚠️ **Docker Alpine no funciona** con msodbcsql18 (falta glibc). Usá imágenes Debian/Ubuntu/Bookworm si conteinerizás.
+
+### 2) Crear usuario read-only en el target SQL Server
+
+```sql
+-- Conectarse a la base de NEGOCIO (NO master)
+USE your_business_db;
+GO
+
+CREATE LOGIN db_agent_ro WITH PASSWORD = N'Use_a_Str0ng_P@ss!';
+CREATE USER db_agent_ro FOR LOGIN db_agent_ro;
+
+-- Permisos mínimos (solo lectura de datos + metadata de esquema)
+ALTER ROLE db_datareader ADD MEMBER db_agent_ro;
+GRANT VIEW DEFINITION TO db_agent_ro;
+GRANT VIEW SERVER STATE TO db_agent_ro;
+GO
+
+-- Opcional: LOCK_TIMEOUT server-side para este login (equivalente a statement_timeout)
+-- Nota: en SQL Server se aplica por sesión; el agente ya envía SET LOCK_TIMEOUT al conectar.
+```
+
+### 3) Modos de autenticación soportados
+
+| Modo | Cómo configurar en la UI / JSON |
+|---|---|
+| **SQL Authentication** (sa / usuario SQL) | Completar `username` y `password` con credenciales SQL. `ssl_mode: disable` (on-prem) o `require` (Azure SQL). |
+| **Integrated Auth SSPI / AD** (Windows joined domain) | Dejar **`username` y `password` VACÍOS** → el driver agrega `Trusted_Connection=Yes`. Funciona solo en Windows/AD. |
+| **Azure SQL Entra ID** | Usar usuario/contraseña de Entra ID o Managed Identity (a través de ODBC Driver 18 si está configurado). |
+
+Azure SQL típico: `ssl_mode: require`, `Encrypt=Mandatory`, `TrustServerCertificate=No` (lo mapea automáticamente el `ssl_mode` dropdown).
+
+---
+
 ## Migrations
 
 ```bash
@@ -952,7 +1015,7 @@ Key test modules:
 
 ## Known Limitations
 
-- **Database adapters**: PostgreSQL is fully implemented. The SQL Server (`SQLServerAdapter`) and MySQL (`MySQLAdapter`) classes are explicit `NotImplementedError` stubs in `app/database/adapters/base.py:379` and `app/database/adapters/base.py:496`. Their wireframe exists to enable clean incremental rollout; production usage against those backends requires implementing the adapter contract (15 abstract methods + `map_column_type`).
+- **Database adapters**: PostgreSQL and **SQL Server (MSSQL / Azure SQL)** are fully implemented. The MySQL (`MySQLAdapter`) class is an explicit `NotImplementedError` stub in `app/database/adapters/`. To add a new backend, extend `DatabaseAdapter`, implement the 15 abstract methods + `map_column_type`, and register it in `by_database_type()` + `adapter_factory()`.
 - Semantic analysis LLM prompts and self-correction loops are pluggable via `app/llm/prompts/` but default to a conservative, deterministic pipeline.
 - Vector retrieval currently stores embeddings in the metadata database; a dedicated vector store can be added by replacing the `Embeddings` repository without API changes.
 - The `DatabaseDiscoveryPipeline` today runs as an in-process `asyncio.create_task(...)`. For very large schemas or many concurrent discoveries, replace with a Celery / Temporal / Arq worker and expose the `discovery_status` endpoint against the same task backend.
